@@ -28,13 +28,17 @@ If inbox is empty, say so and stop.
 "<raw text or extracted_action_item, full but trimmed at 200 chars>"
 
 Suggested:
-  Action: do / defer / delegate / drop / waiting
+  Action: do / defer / delegate / drop / waiting / journal
   If do → Project: <best match from active list, or "new: <suggested name>">
           Title (verb-first): <suggested>
           Contexts: <best matches, e.g. @phone @errand>
           Energy: low/medium/high
           Estimate: <minutes>
+  If journal → topic_tags: <suggested e.g. health, energy, relationships>
+               is_sensitive: <true if medical/health/medication content>
 ```
+
+**When to suggest "journal" instead of a task:** the captured item is a *state observation*, not an action — moods, energy/fade notes, body/health/medication entries, food, sleep, relationship feelings, journaling-style thoughts. Tasks have verbs ("call X", "fix Y"); journal entries describe a moment ("ate Chipotle, no carbs, took GLP-1 Tuesday, feeling nauseous"). When in doubt, ask.
 
 Wait for Dave's response. He can:
 - Accept the suggestion (`ok` / `yes` / silence)
@@ -47,6 +51,18 @@ Wait for Dave's response. He can:
   ```sql
   UPDATE efc.inbox_items SET status='dropped', triaged_at=now()
   WHERE id = '<id>';
+  ```
+
+- **Journal:** route the observation to `efc.journal_entries`, then mark inbox triaged.
+  ```sql
+  WITH j AS (
+    INSERT INTO efc.journal_entries (entry_text, source, is_sensitive, topic_tags, inbox_item_id, captured_at)
+    SELECT raw_text, 'triage', <true|false>, ARRAY['<tag1>','<tag2>'], id, captured_at
+    FROM efc.inbox_items WHERE id = '<inbox_id>'
+    RETURNING id
+  )
+  UPDATE efc.inbox_items SET status='triaged', triaged_at=now()
+  WHERE id = '<inbox_id>';
   ```
 
 - **Defer:** create a deferred task, link back.

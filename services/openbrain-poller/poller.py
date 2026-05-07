@@ -66,7 +66,7 @@ def fetch_new_memories(sb: Client, since: str | None) -> list[dict]:
             "id, content, memory_type, source, action_items, "
             "people, topics, created_at, original_timestamp, thread_id"
         )
-        .neq("action_items", None)
+        .filter("action_items", "not.is", "null")
         .eq("is_archived", False)
         .order("created_at", desc=False)
         .limit(BATCH_LIMIT)
