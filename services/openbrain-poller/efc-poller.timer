@@ -1,0 +1,14 @@
+[Unit]
+Description=Run EFC OpenBrain poller every 5 minutes
+Documentation=https://github.com/davidlayfield/executive-function-copilot
+
+[Timer]
+# Every 5 minutes, all hours. Cheap (most runs do nothing).
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Persistent=true
+Unit=efc-poller.service
+
+[Install]
+WantedBy=timers.target

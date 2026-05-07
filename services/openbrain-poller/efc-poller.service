@@ -1,0 +1,14 @@
+[Unit]
+Description=EFC OpenBrain poller — mines new openbrain memories for action items into efc.inbox_items
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/efc/openbrain-poller
+EnvironmentFile=/etc/efc/env
+ExecStart=/home/ubuntu/efc/openbrain-poller/venv/bin/python /home/ubuntu/efc/openbrain-poller/poller.py
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=300
