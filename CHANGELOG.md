@@ -2,6 +2,21 @@
 
 All notable changes to this project go here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased — 2026-05-07 (evening, decisions only — no plugin code change)
+
+### Decided (logged in `docs/ARCHITECTURE.md` § Decisions)
+- **Routine output delivery:** Cowork blue-dot + macOS push. **No Telegram, no email.** Dave engages with the brief as a chat.
+- **OpenBrain Gmail cadence:** changed from hourly to **every 1 minute** (operationally — `OnCalendar=*-*-* *:*:00` on the systemd timer + `expected_cadence_seconds=60` in `openbrain.connectors`). Run duration 5–9 sec; safe under Google quotas; `flock` prevents overlap.
+- **Email management (Phase 4):** subsume the dormant Clearpath plugin into Dave OS. Its design is excellent; its JSON-file + tunneled-MCP implementation is wrong shape. Migration plan written into `docs/ARCHITECTURE.md` § Phase plan. Clearpath last activity was 2026-02-08; data files frozen at 5 template entries each; `mcp.davidlayfield.com` tunnel returns 404; no runtime.
+
+### Deployed (operational, not in this repo)
+- `dave-os-morning-briefing` scheduled task created (`~/.claude/scheduled-tasks/dave-os-morning-briefing/SKILL.md`). Cron: `0 7 * * *` local. Self-contained prompt — reads operating manual, inbox, overdues, journal, recent journal, yesterday's plan; produces a one-screen briefing; saves to `efc.daily_plans`.
+- OpenBrain Gmail ingester timer on Ralph (`/etc/systemd/system/openbrain-gmail-ingest.timer`) updated to 1-minute cadence; old hourly version backed up at `.bak-hourly`.
+
+### Captured for tomorrow's briefing
+- Phase 1.C investigation (already inbox item `4706efbb…`).
+- Phase 4 — Inbox AI / Clearpath subsumption — to be added as a new inbox item below.
+
 ## [0.4.0] — 2026-05-07 (afternoon)
 
 ### Added

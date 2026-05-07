@@ -178,14 +178,33 @@ executive-function-copilot/
 - Cross-temporal comparisons (vs. last week, last month, year-ago) iterate from there.
 
 ### 🔜 Phase 3 — Capture surfaces
-- Telegram bot for mobile capture (Mission Control already has the bot wired).
 - Voice capture via Cowork mobile.
-- Email-to-inbox via Mission Control's existing Gmail connection.
+- Telegram retired by user preference; Cowork blue-dot + push notification is the delivery channel for routine outputs (e.g. `dave-os-morning-briefing` routine, daily 7 AM).
+- Email-to-inbox is no longer a separate concern — see Phase 4 below.
+
+### 🔜 Phase 4 — Inbox AI (rolls in the dormant Clearpath project)
+**Background:** Clearpath was a separate plugin Dave built in early Feb 2026 to manage email AI-side: 5-category classification, YMYL detection, contact learning, project clustering, newsletter whitelist + story extraction, unsubscribe queue, task extraction. **Last activity 2026-02-08.** Data files frozen, MCP tunnel down, no runtime. The design work was excellent and reusable; the JSON-file + tunneled-MCP implementation is wrong shape for a multi-machine, multi-surface system.
+
+**Plan: subsume into Dave OS.** Lift the design, throw away the implementation.
+
+- Modify the OpenBrain Gmail ingester to capture **full bodies** (currently snippets only — avg 455 chars, max ~3KB; real bodies are 10–100KB).
+- Port Clearpath's schemas:
+  - `contacts.json` → `efc.people` (already exists).
+  - `newsletters.json` → new `efc.newsletter_whitelist`.
+  - `rules.json` → new `efc.email_rules`.
+  - `unsubscribe-queue.json` → new `efc.unsubscribe_queue`.
+  - `user-profile.json` → already in `efc.operating_manual`.
+  - `tasks.json` → `efc.tasks` (already richer).
+  - `projects.json` → `efc.projects` (already richer).
+- Port Clearpath's **prompts** (5-category classifier, YMYL detector, newsletter story extractor, task extractor) as scheduled routines using the same pattern as `dave-os-morning-briefing`.
+- Surface results in the morning brief: *"5 new emails classified — 2 promoted, 1 archived, 1 in waiting-for, 1 awaiting your call."*
+- Retire the Clearpath repo. Archive its PRD as a Phase-4 reference.
 
 ### Later
 - Delegation engine (uses `efc.people.delegation_areas` to suggest hand-offs proactively).
 - Pattern analytics dashboard (private, local).
 - Habit / routine adherence tracking.
+- Drafting replies on Dave's behalf (gated, guarded, opt-in per relationship).
 
 ## Decisions made today (2026-05-07)
 
@@ -204,6 +223,9 @@ These are decisions you'd otherwise have to re-derive every session. Logged here
 | **Operating manual storage** | DB row is source of truth (`efc.operating_manual`). Local file is a fast cache. Sync on edit. | Cross-surface (CLI, Cowork web, mobile via Dispatch). |
 | **What "I'm not a clinician" means** | I do not diagnose, prescribe, or treat. I _am_ a high-level coach for organization, GTD, and executive function. **And:** I surface patterns that may warrant a conversation with Dave's actual therapist or doctor. Frame as "worth asking about," never "you should take X." | Updated in Dave's operating manual at his explicit direction. Pattern recognition that prompts professional conversations is part of the job. |
 | **Failed experiments — do not propose again** | Color-coded GCal categories, sacred Flow-day systems, pre/post meeting blocks, Tue/Thu Family Admin sprints, Pomodoro variants, weekly time-grids. | All tried. None stuck. Documented in the operating manual. The system designs around their absence, not toward another version. |
+| **Delivery channel for routine outputs** | Cowork session blue-dot + macOS push notification. **No Telegram. No email.** Dave engages with the brief as a chat — replies, decisions, push-to-tomorrow all happen in the same session. | Dave wants to leave email and stop using Telegram. Routine output as a chat surface lets him triage, ask questions, and add context in one place. Aligns with the long-term goal of "I almost never go into email anymore — Dave OS surfaces what matters." |
+| **Email firehose cadence** | OpenBrain Gmail ingester runs **every 1 minute** (was hourly). Confirmed safe: per-poll quota usage well under Google limits, run duration 5–9 sec, `flock` prevents overlap. | Latency from Gmail-arrival to OpenBrain-memory drops from ≤60 min to ≤1 min. Required for "email arriving at 7:55 AM is in the morning brief at 7:04 AM the same day if it landed before 7:04, or within 1 minute otherwise." |
+| **Email management approach (Phase 4)** | Subsume Clearpath into Dave OS. Lift its design (PRD, schemas, classification, YMYL detection, newsletter extraction, unsubscribe management, contact learning) into Supabase + Dave OS plugin commands + scheduled routines. Retire its dormant JSON-file + tunneled-MCP implementation. | Clearpath has been dormant since 2026-02-08 (data files frozen, tunnel 404). The design work is excellent; the runtime shape is wrong. Subsuming eliminates a dead system AND prevents Dave OS from rebuilding what was already designed. |
 
 ## How this stays alive (the 90-day test)
 
