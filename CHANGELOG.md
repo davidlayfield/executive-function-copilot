@@ -2,7 +2,21 @@
 
 All notable changes to this project go here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased — 2026-05-07 (later evening — Phase 4 M1 schema + decisions)
+## Unreleased — 2026-05-07 (late evening — L3 + Phase 1.D part 1)
+
+### Added
+- **Scheduled task `dave-os-nightly-reflection`** — daily 10 PM ET autonomous reflection. Reads today's tasks, journal entries, inbox activity, daily plan, interactions, yesterday's reflection. Composes a 150-300 word reflection. Saves to `efc.daily_reflections` (idempotent ON CONFLICT). Notifies via blue dot. Closes the L3 loop with the morning briefing routine.
+- **Migration `openbrain_email_bodies_table`** — Phase 1.D part 1. New `openbrain.email_bodies` table for full email bodies (separate from `memories` so embeddings stay small and existing consumers unaffected). Carries body_plain, body_html, all addresses (to/cc/bcc), date_received, attachment_summary, and `list_unsubscribe`/`list_unsubscribe_post` headers (Phase 4 unsubscribe). Unique on `(account, message_id)`. RLS enabled.
+- **View `openbrain.v_email_with_body`** — joins `memories` + `raw_entries` + `email_bodies` for one-shot Phase 4 reads. 154,390 gmail memories ready to be joined; 0 with body yet (ingester change in Phase 1.D part 2 will populate).
+
+### Why two parts for Phase 1.D
+- Tonight: schema additions only — additive, low risk, can't break the live ingester.
+- Later: actual ingester code change (fetch `format=full`, MIME-decode, write to `email_bodies`) — needs careful test on the live every-1-min Ralph service. Better fit for a peak window.
+
+### Schema discovery
+- `openbrain.memories.thread_id` is `uuid`-typed; Gmail thread_ids are 16-char hex (not valid uuids). They can't go there. Email-thread linkage stays in `email_bodies.thread_id` (text) and `raw_entries.source_metadata.thread_id`. The view abstracts this.
+
+
 
 ### Added
 - **Migration `efc_phase4_m1_inbox_ai_schema`** — 7 new tables for Phase 4: `inbox_email_log`, `inbox_rules`, `inbox_sessions`, `newsletter_sources`, `newsletter_interests`, `newsletter_digests`, `unsubscribe_queue`. All RLS-enabled. Seeded with 6 newsletter sources (AI Secret, Robotics Herald, Bay Area Letters, TechCrunch, Axios Morning, Axios AI) and 10 interest topics.
