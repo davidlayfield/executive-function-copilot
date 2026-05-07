@@ -2,6 +2,31 @@
 
 All notable changes to this project go here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased — 2026-05-07 (later evening — Phase 4 M1 schema + decisions)
+
+### Added
+- **Migration `efc_phase4_m1_inbox_ai_schema`** — 7 new tables for Phase 4: `inbox_email_log`, `inbox_rules`, `inbox_sessions`, `newsletter_sources`, `newsletter_interests`, `newsletter_digests`, `unsubscribe_queue`. All RLS-enabled. Seeded with 6 newsletter sources (AI Secret, Robotics Herald, Bay Area Letters, TechCrunch, Axios Morning, Axios AI) and 10 interest topics.
+- **`efc.tasks` extended** with email-derived columns: `source_email_id`, `source_account`, `sender_name`, `sender_email`, `thread_id`, `priority_score numeric(4,3)`, `score_dimensions jsonb`, `score_reason`, `draft jsonb`, `ymyl_classification`, `ymyl_alert jsonb`. Indexes on source_email, thread, priority.
+- **`efc.people` extended** with contact-learning columns: `email_normalized` (unique), `importance_score`, `relationship_tags`, `response_pattern`, `interaction_count`, `accounts_seen_on`, `organization`. Importance index for ranking.
+
+### Decided (logged in `docs/PHASE-4-INBOX-AI.md` § 15)
+All 9 Phase 4 open questions resolved:
+- **Q1 Auto-send:** copy-paste only first; graduate to auto-send for low-stakes after 30 days; YMYL stays manual forever.
+- **Q2 Active accounts:** 5 firehose accounts (gsh, ai, dflayfield, as, urbanorigin); `info@apartmentsmart.com` deliberately excluded — separate-session design.
+- **Q3 Mission Control retirement:** MC being decommissioned slowly. OAuth tokens go in **Supabase Vault** (`vault.secrets`, confirmed enabled). Direct Google API integration in the plugin.
+- **Q4 Full bodies + threads:** modify OB ingester (Phase 1.D) for both.
+- **Q5 Cadence:** every 5 minutes, silent background; only morning brief notifies.
+- **Q6 Newsletters:** the 6 confirmed; commands needed.
+- **Q7 YMYL ceiling:** defaults fine; revisit after first weekly report.
+- **Q8 Calendar:** Phase 5, own session.
+- **Q9 Comm style:** `efc.operating_manual` is single source of truth.
+
+### New deferred-conversation inbox items captured
+- Plan Mission Control slow-decommission timeline.
+- Design `info@apartmentsmart.com` handling (special-case shared mailbox).
+- Phase 5 — Calendar integration design.
+- Phase 1.D — modify OB Gmail ingester for full bodies + thread_id.
+
 ## Unreleased — 2026-05-07 (evening, decisions + design only — no plugin code change)
 
 ### Added

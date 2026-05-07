@@ -239,31 +239,62 @@ Identity = "email delegation engine"; mission = chaotic inboxes → ranked task 
 - Score decay (5%/day) and deadline boost (linear 48h ramp) as display-time-only transforms
 - Output formatting conventions for `/inbox-start`, `/inbox-tasks`, `/inbox-projects`, `/inbox-report`, YMYL alerts
 
-## 15. Open questions / ambiguities — Dave to resolve
+## 15. Open questions — RESOLVED 2026-05-07 evening
 
-| # | Question | Why it matters |
+| # | Question | Resolution |
 |---|---|---|
-| Q1 | **Auto-send** — copy-paste-only (PRD v1 default) or skip ahead to direct send via Mission Control's `/api/email/bot/send`? Mission Control already has the OAuth scopes Clearpath was deferring. | Defines the autonomy ceiling. Affects M6. |
-| Q2 | **Active accounts** — Clearpath listed 6 (personal, as, gsh, ai, uo, info). Memory shows 4 active (gsh, ai, dflayfield, as). Are urbanorigin and info still active? | Scopes M3 multi-account expansion. |
-| Q3 | **Mission Control vs direct Gmail API** — call MC's `/api/email/bot/threads` or hit Gmail directly? MC is the right answer per the playbook but currently lacks `archive`, `mark_as_read`, `add_label` write endpoints. | M1 includes adding those write endpoints to MC if MC is the call. |
-| Q4 | **OpenBrain overlap / full bodies** — OpenBrain stores ~455 chars avg per email; classification + scoring need full bodies. Modify OB ingester (preferred) or fetch on-demand from Gmail? | Both work; modifying OB is cleaner. Already captured as inbox item 4417c2bf. |
-| Q5 | **Auto-pull cadence** — Clearpath's "30 minutes while Cowork is open" → on Dave OS as a scheduled routine, what cadence? Match the morning briefing (7am only)? Every 30 min? Hourly? | Affects routine setup in M2. |
-| Q6 | **Newsletter whitelist seed** — current whitelist has 6 newsletters (AI Secret, Robotics Herald, Bay Area Letters, TechCrunch, Axios Morning, Axios AI). Still right? Add/remove? | Seeds M5 newsletter pipeline. |
-| Q7 | **YMYL false-positive ceiling** — "false positive better than false negative" works at low volume; at 200+ emails/day could become noise. Tunable threshold? | Defaults are fine to start; revisit after first weekly report. |
-| Q8 | **Calendar integration** — Clearpath PRD §18 lists "auto-schedule from emails" as v2. Mission Control has Calendar API. Fold into Phase 4 or scope-cut? | Likely cut from Phase 4. Worth an explicit "no" so it doesn't creep. |
-| Q9 | **Communication-style profile single source** — `efc.operating_manual.communication_style` or a separate inbox-AI store? | Pick one. Recommend operating_manual. |
+| Q1 | Auto-send | **Copy-paste only at first.** Graduate to auto-send for low-stakes categories after 30 days of seeing the system draft replies you'd actually send. YMYL stays manual forever. |
+| Q2 | Active accounts | **5 accounts in Dave OS firehose:** gsh, ai, dflayfield, as, urbanorigin. **`info@apartmentsmart.com` deliberately excluded** from OpenBrain (huge volume, shared mailbox); needs its own design (separate session). |
+| Q3 | Mission Control vs direct Gmail API | **Mission Control is being decommissioned.** Email read/send/archive lives in Claude (plugin commands or routines). OAuth tokens stored in Supabase Vault (`vault.secrets`) — confirmed enabled on the project. Migration is slow, not immediate; Mission Control stays running until Dave OS subsumes each module. |
+| Q4 | OpenBrain overlap / full bodies | **Modify OpenBrain Gmail ingester to capture full bodies AND preserve thread structure** (`thread_id` linking). Phase 1.D prerequisite. Already captured as inbox items 4417c2bf and ___ (thread). |
+| Q5 | Auto-pull cadence | **Every 5 minutes, silent background.** Matches OB ingester. Only the morning brief notifies; auto-pull processes silently. |
+| Q6 | Newsletter whitelist seed | **Confirmed: 6 newsletters** (AI Secret, Robotics Herald, Bay Area Letters, TechCrunch, Axios Morning, Axios AI). Need plugin commands to add/remove/list/suggest — delivered in M5. |
+| Q7 | YMYL false-positive ceiling | Defaults fine to start. Revisit after first weekly `/inbox-report`. |
+| Q8 | Calendar integration | **Phase 5 — own session.** Calendar moves into Dave OS as Mission Control retires. Direct Google Calendar API + OAuth tokens in `vault.secrets`. Not part of Phase 4. |
+| Q9 | Communication style single source | **`efc.operating_manual` is the source.** Inbox AI's drafting reads from operating manual; no separate copy. |
+
+## 15a. Mission Control retirement plan (added 2026-05-07)
+
+Mission Control is being decommissioned. Migration is slow — leave MC as-is, replace each module piece-by-piece as Dave OS subsumes it.
+
+| MC module | Dave OS successor | Status |
+|---|---|---|
+| Email (read/list/search) | Plugin command + routine; OAuth in `vault.secrets` | Phase 4 M2/M3 |
+| Email (send) | Plugin command, gated on autonomy level | Phase 4 M6 |
+| Email (archive / mark / label) | Plugin commands | Phase 4 M2 |
+| Calendar | Plugin command + routines | **Phase 5 — own session** |
+| Tasks | `efc.*` schema | Already done |
+| Finance / Plaid | Dave OS personal-finance surface; same Plaid app, different consumer | Phase 6 — Dave wants this in Claude |
+| News | Newsletter digest + routines | Phase 4 M5 |
+| Briefings | `dave-os-morning-briefing` routine | Already done |
+| Memory | OpenBrain | Already done |
+| Projects | `efc.projects` | Already done |
+
+**Open questions for the MC-retirement session:**
+- Where does Cowork's built-in Gmail integration sit vs. our own OAuth-in-vault path? (May obviate token migration.)
+- Plaid migration: does Dave OS take over financial routines (categorize transactions, surface anomalies, weekly cashflow brief)? Or just decommission Plaid altogether and re-decide finance later?
+- News module — what's MC currently doing for news that the newsletter digest doesn't cover?
+- Cleanup timeline: when does MC actually shut down vs. just stop being the source-of-truth?
 
 ## 16. Phase 4 build order
 
 Six milestones. M1–M3 are MVP; M4–M6 are extensions. Do not try to ship the full PRD in one pass.
 
-### M1 — Schema + ingestion (foundation)
-- Create `efc.inbox_email_log`, `efc.inbox_rules`, `efc.inbox_sessions`, `efc.newsletter_sources`, `efc.newsletter_interests`, `efc.newsletter_digests`, `efc.unsubscribe_queue`
-- Extend `efc.tasks` with score/draft/source columns
-- Extend `efc.people` with importance/relationship/response fields
-- Add `archive_email`, `mark_as_read`, `modify_labels` write endpoints to Mission Control (if Q3 = MC)
-- Verify single-account fetch loop (gsh) writes correctly to email_log and dedups on re-run
-- **Out of scope:** classification, scoring, anything LLM-driven
+### M1 — Schema + ingestion (foundation) — **✅ SHIPPED 2026-05-07 evening**
+- ✅ Created `efc.inbox_email_log`, `efc.inbox_rules`, `efc.inbox_sessions`, `efc.newsletter_sources`, `efc.newsletter_interests`, `efc.newsletter_digests`, `efc.unsubscribe_queue`
+- ✅ Extended `efc.tasks` with `source_email_id`, `source_account`, `sender_name`, `sender_email`, `thread_id`, `priority_score`, `score_dimensions`, `score_reason`, `draft`, `ymyl_classification`, `ymyl_alert`
+- ✅ Extended `efc.people` with `email_normalized`, `importance_score`, `relationship_tags`, `response_pattern`, `interaction_count`, `accounts_seen_on`, `organization`
+- ✅ Seeded 6 newsletter sources + 10 interest topics (per Q6)
+- ✅ All RLS-enabled, single-user permissive policies
+- ⏭️ Single-account fetch loop verification → moved to M2 (depends on OAuth wiring)
+
+### M1.5 — OpenBrain ingester upgrade (Phase 1.D, Dave-flagged prerequisite)
+- Modify `/home/ubuntu/openbrain/connectors/gmail/openbrain_gmail_ingest.py` on Ralph:
+  - Capture **full email bodies** (currently snippets-only; max 3KB; need full)
+  - **Preserve thread structure** — populate `openbrain.memories.thread_id` so a single query returns "every message in this thread, in order, both directions"
+- Backfill thread_id on existing 154k+ gmail memories where derivable
+- Add `urbanorigin` (dave@urbanorigin.io) to the ingester's account list if not already present
+- **Explicitly exclude `info@apartmentsmart.com`** from the ingester's account list (separate session for that mailbox)
 
 ### M2 — Classification + YMYL + scoring (the brain)
 - Port email-classification skill as a system prompt section for the inbox-process routine
