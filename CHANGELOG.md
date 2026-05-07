@@ -2,7 +2,12 @@
 
 All notable changes to this project go here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased — 2026-05-07 (evening, decisions only — no plugin code change)
+## Unreleased — 2026-05-07 (evening, decisions + design only — no plugin code change)
+
+### Added
+- **`docs/PHASE-4-INBOX-AI.md`** — full synthesis of the dormant Clearpath plugin into a Phase 4 build plan. Reads its 5,147-line PRD + 10 skills + 10 data seeds + 10 commands + MCP server. Maps Clearpath's design to Dave OS's `efc.*` Supabase schema, identifies what to absorb vs retire, lists 9 open questions for Dave to resolve, sequences a 6-milestone build order (M1 schema → M6 send capability).
+
+
 
 ### Decided (logged in `docs/ARCHITECTURE.md` § Decisions)
 - **Routine output delivery:** Cowork blue-dot + macOS push. **No Telegram, no email.** Dave engages with the brief as a chat.
