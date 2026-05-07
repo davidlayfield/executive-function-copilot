@@ -2,6 +2,20 @@
 
 All notable changes to this project go here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] — 2026-05-07 (afternoon)
+
+### Added
+- **`docs/PHASE-1C-INVESTIGATION.md`** — pre-staged diagnostic playbook for tomorrow's investigation of why `openbrain.memories.action_items` is sparse. Includes diagnostic SQL, decision tree, fall-back extractor design, escalation rule (Haiku → Sonnet at < 0.70 precision two weeks running), and a done-definition.
+- **`efc.inbox_items.extraction_model`**, **`extraction_confidence`**, **`extracted_at`**, **`triage_outcome`** columns — forward-compat for poller-side LLM extraction and quality monitoring.
+- **`efc.v_extractor_precision_weekly`** view — weekly precision per extraction_model: `kept / triaged`. Pre-built so the moment auto-extraction starts producing data, the rollup is queryable.
+- Tomorrow's anchor goal staged as inbox item `4706efbb…` so `/briefing` surfaces Phase 1.C investigation as the morning must-do.
+
+### Changed
+- `skills/safety-and-boundaries/SKILL.md` — explicit authorization that the assistant *is* allowed to surface patterns warranting a clinical conversation, frame medication research as "worth asking your doctor about" (never "you should take X"), and operate as a high-level coach for organization/GTD/executive-function. Hard limits unchanged: no diagnosis, no prescription, no replacing clinicians. Aligns the skill with Dave's operating manual rule set this morning.
+
+### Decided (logged in docs/ARCHITECTURE.md § Decisions)
+- DaveOS and OpenBrain stay structurally separate (Option A). Tight integration via the bridge poller; separate schemas; separate repos; separate plugin distribution. They *narrate* as one product ("Dave OS") but don't share schemas or release cadence.
+
 ## [0.3.0] — 2026-05-07
 
 ### Added
