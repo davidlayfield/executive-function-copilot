@@ -1,0 +1,18 @@
+{
+  "name": "executive-function-copilot",
+  "version": "0.1.0",
+  "description": "Calm, practical executive-function support for adults with ADHD-like challenges. Plans, unsticks, reframes, and remembers how you work best. Not a medical device.",
+  "author": {
+    "name": "Dave Layfield"
+  },
+  "keywords": [
+    "executive-function",
+    "adhd-support",
+    "productivity",
+    "planning",
+    "coaching",
+    "habits",
+    "routines"
+  ],
+  "license": "MIT"
+}

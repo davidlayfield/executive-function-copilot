@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "executive-function-copilot",
+  "description": "Local marketplace wrapping the Executive Function Copilot plugin.",
+  "owner": {
+    "name": "Dave Layfield"
+  },
+  "plugins": [
+    {
+      "name": "executive-function-copilot",
+      "description": "Calm, practical executive-function support for adults with ADHD-like challenges. Plans, unsticks, reframes, and remembers how you work best. Not a medical device.",
+      "author": {
+        "name": "Dave Layfield"
+      },
+      "category": "productivity",
+      "source": "./"
+    }
+  ]
+}
