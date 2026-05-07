@@ -2,6 +2,29 @@
 
 All notable changes to this project go here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased — 2026-05-07 (late evening — Phase 1.D part 2 SHIPPED)
+
+### Changed (live on Ralph)
+- **`/home/ubuntu/openbrain/connectors/gmail/openbrain_gmail_ingest.py`** modified:
+  - `get_thread()` now uses `format=full` instead of `format=metadata` — fetches full MIME payload alongside existing metadata.
+  - New helpers: `_decode_part`, `_walk_payload`, `_extract_bodies` (MIME tree walker), `_parse_address`, `_extract_address_list`, `write_email_body` (best-effort PostgREST upsert to `openbrain.email_bodies`).
+  - Thread-processing loop now calls `write_email_body(email, msg)` for each message after `ingest_memory` succeeds. Failures are logged and ignored — bodies are an enrichment, not a hard dependency.
+- Original backed up at `openbrain_gmail_ingest.py.bak-20260507-2338` on Ralph.
+- Snapshot of deployed version checked into this repo as `services/openbrain-poller/REFERENCE-openbrain-gmail-ingester.py` (reference only — not live).
+
+### Verified
+- Manual run on `dave@greenstreethousing.com --since 2026-05-07` produced **50 email_bodies rows across 25 threads**.
+- **Avg body size: 37,079 bytes** (vs. ~455 in old snippet form — 80× more content).
+- Max body 293,928 bytes (a citybizlist real-estate newsletter, HTML-only).
+- 13 captured `List-Unsubscribe` headers — Phase 4 unsubscribe pipeline now has real data to work with.
+- 11 emails with attachment metadata captured.
+- Existing memory ingest unchanged (still working on the same threads in parallel).
+
+### Known limitations
+- **IMAP code path** (used by `dflayfield@gmail.com`) doesn't yet write to `email_bodies`. Other 4 OAuth/Gmail-API accounts are covered. Lower-priority fix.
+- **HTML-only newsletters** populate `body_html` and leave `body_plain` null. Classifier will need to handle both columns (already true in any reasonable parser).
+- **No backfill yet** of the existing 154k+ gmail memories. The new code only catches memories ingested going forward. A one-shot batch script can be run later to backfill.
+
 ## Unreleased — 2026-05-07 (late evening — L3 + Phase 1.D part 1)
 
 ### Added
