@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Dave OS Calendar Ingester every 10 minutes
+
+[Timer]
+OnCalendar=*-*-* *:0/10:00
+Persistent=true
+RandomizedDelaySec=30
+Unit=dave-os-calendar-ingest.service
+
+[Install]
+WantedBy=timers.target

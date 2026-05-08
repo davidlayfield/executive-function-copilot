@@ -1,0 +1,19 @@
+[Unit]
+Description=Dave OS Calendar Ingester
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/openbrain/connectors/gmail
+EnvironmentFile=-/etc/efc/env
+ExecStart=/usr/bin/flock -n /run/lock/dave-os-calendar-ingest.lock /usr/bin/python3 /home/ubuntu/openbrain/connectors/gmail/openbrain_calendar_ingest.py
+StandardOutput=append:/home/ubuntu/openbrain/logs/calendar-ingest.log
+StandardError=append:/home/ubuntu/openbrain/logs/calendar-ingest.log
+TimeoutStartSec=10min
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
