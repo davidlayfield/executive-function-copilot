@@ -2,6 +2,27 @@
 
 All notable changes to this project go here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased — 2026-05-07 (Phase 4 M2 v2 — rules-first + Max-plan-aware)
+
+### Changed
+- **`dave-os-inbox-process` routine rewritten (v2).** Three-stage pipeline: rules-first deterministic pre-filter (~60% of emails handled free), batched LLM reasoning for the rest (Sonnet/Opus on Dave's Claude Max 20x plan = $0 marginal), batched SQL writes.
+- **Batch size 30 → 100.** Max plan rarely above 50% utilization; routines should be generous, not stingy.
+- **Cost model corrected.** Routine compute draws from Dave's Max plan quota, not metered API. Marginal cost ≈ $0 within plan limits. Earlier $300-3,400 estimate assumed metered API and was wrong for this user.
+- Snapshot of new routine prompt: `services/openbrain-poller/REFERENCE-dave-os-inbox-process.md`.
+
+### Rules-first heuristics (no LLM)
+- Newsletter whitelist match → NEWSLETTER
+- LinkedIn / Twitter / Facebook / Instagram / X / Threads / TikTok / no-reply / notification senders → NOISE (with safety check for urgency keywords in subject)
+- List-Unsubscribe header + not on whitelist → log to `efc.newsletter_sources` as unreviewed (still LLM-classify the email itself)
+- Display-name vs domain mismatch + credential-fishing keywords → SPAM
+- Subject starts with "FYI:" / "Heads up:" / "For your records" → INFORMATIONAL
+- info@apartmentsmart.com → skip (defensive, OB excludes it already)
+- Emails older than 12 months get a context_richness penalty (less likely actionable now)
+
+### Quota awareness
+- 429 / rate-limit → log throttled, exit clean, next 5-min fire retries
+- No batch-size shrinking; let Max quota cover bigger batches naturally
+
 ## Unreleased — 2026-05-07 (Phase 4 M2 orchestrator + brain skills shipped)
 
 ### Live (silent background)
