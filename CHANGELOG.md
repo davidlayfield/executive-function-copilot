@@ -2,6 +2,32 @@
 
 All notable changes to this project go here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased — 2026-05-07 (Phase 4 M2 orchestrator + brain skills shipped)
+
+### Live (silent background)
+- **Scheduled task `dave-os-inbox-process`** — Phase 4 M2 inbox-AI orchestrator. Fires every 5 minutes. Pulls new emails from `openbrain.email_bodies` not yet in `efc.inbox_email_log`, runs each through one Haiku-class LLM call returning structured JSON (classification + YMYL + score dimensions + task extraction), applies post-composite scoring rules (YMYL floors, CC ceiling, newsletter ceiling) in SQL, deduplicates against `efc.tasks`, writes everything. Silent — no notifications; morning brief surfaces results. Cost ~$0.0001/email, ~$0.86/day at full firehose.
+- Skipped accounts: `info@apartmentsmart.com` (already excluded at OB ingestion).
+- BATCH_SIZE=30 per run; idempotent via `(account, message_id)` unique index on `inbox_email_log`.
+
+### How M2 + the brain compose
+The four skills (`email-classification`, `ymyl-detection`, `email-scoring`, `email-task-extraction`) are the rules. The orchestrator routine is the orchestration. Each cycle:
+
+```
+new emails (openbrain.v_email_with_body)
+  → classify (5+1 categories, decision tree)
+  → if YMYL: extract structured alert
+  → score (6 dimensions + 7 special rules)
+  → if ACTIONABLE/YMYL: extract verb-first task (3-check dedup)
+  → write efc.inbox_email_log (classification log)
+  → write/update efc.tasks (if extracted)
+  → upsert efc.people (sender contact-learning)
+  → update efc.poller_state ('inbox-process')
+```
+
+### Open considerations (to revisit)
+- Backlog: ~111k emails will land in `email_bodies` overnight. M2 processes 30/run × 288 runs/day = 8,640/day. Backfill of classifications will take ~13 days unless we bump batch size.
+- Skill auto-loading in routine sessions: assumed plugin skills are accessible in scheduled task contexts; first runs will reveal whether classifications are sensible. If garbage, inline the skill content into the routine prompt.
+
 ## Unreleased — 2026-05-07 (last push of the night — Phase 1.D backfill running)
 
 ### Live on Ralph (background, ~14h)
