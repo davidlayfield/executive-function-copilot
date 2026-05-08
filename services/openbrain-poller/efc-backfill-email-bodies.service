@@ -1,0 +1,17 @@
+[Unit]
+Description=EFC one-shot backfill of openbrain.email_bodies for historical Gmail threads (~14h)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/openbrain/connectors/gmail
+EnvironmentFile=-/etc/efc/env
+ExecStart=/usr/bin/python3 /home/ubuntu/openbrain/connectors/gmail/backfill_email_bodies.py
+StandardOutput=append:/home/ubuntu/openbrain/logs/backfill-email-bodies.log
+StandardError=append:/home/ubuntu/openbrain/logs/backfill-email-bodies.log
+TimeoutStartSec=24h
+Nice=15
+Restart=no

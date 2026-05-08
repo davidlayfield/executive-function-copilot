@@ -2,6 +2,28 @@
 
 All notable changes to this project go here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased — 2026-05-07 (last push of the night — Phase 1.D backfill running)
+
+### Live on Ralph (background, ~14h)
+- **systemd service `efc-backfill-email-bodies.service`** — one-shot Python backfill walking historical Gmail threads to populate `openbrain.email_bodies` for the 111k+ that were ingested before Phase 1.D part 2.
+- **Started:** 2026-05-07 23:59:08 UTC. **Expected completion:** ~14:00 UTC Friday May 8 (overnight).
+- Throttled to ~2.1 threads/sec (real measured rate; gated by Gmail API latency, not our throttle).
+- Reuses live ingester's `GoogleAuth`, `get_thread`, `write_email_body` helpers. Idempotent (upserts on `(account, message_id)`); resumable (`list_missing_email_body_threads()` re-evaluates each run).
+- Accounts (in order): gsh (54,754), personal (31,437), as (24,375), ai (562), urbanorigin (already done in smoke test, 0).
+- Logs to `/home/ubuntu/openbrain/logs/backfill-email-bodies.log` AND `journalctl -u efc-backfill-email-bodies`.
+
+### Schema additions
+- **`openbrain.list_missing_email_body_threads(text)`** — RPC function returning thread_ids missing from `email_bodies` for a given account. Coalesces `thread_id` and `gmail_thread_id` (historical raw_entries used the latter; ingester switched to the former). Returns `text[]` (not TABLE) to bypass PostgREST's default 1000-row cap that bit us during the first attempt.
+
+### Snapshots in repo
+- `services/openbrain-poller/backfill_email_bodies.py` — backfill script (deployed copy on Ralph).
+- `services/openbrain-poller/efc-backfill-email-bodies.service` — systemd unit (deployed copy on Ralph).
+
+### Storage projection (decision logged)
+- Current DB: 5.5 GB. Projected after backfill: ~11 GB. Supabase Pro tier overage cost: **~$0.40/month** ($5/year).
+- Mission Control retirement frees ~800 MB (`public.mc_emails*`) — net storage delta after MC retirement is roughly the same as today.
+- Decision: do the backfill. Cost trivial; value enormous (Phase 4 classification can read every historical thread).
+
 ## Unreleased — 2026-05-07 (late evening — Phase 1.D part 2 SHIPPED)
 
 ### Changed (live on Ralph)
