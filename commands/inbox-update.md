@@ -31,12 +31,37 @@ Same as `/inbox-show` step 1.
 
 ## Step 3 — Apply the change
 
+After applying the status change, **if status='done' or 'dropped' AND the task has `source_account` + `thread_id` AND `source_account` is one of the OAuth-modify-scoped accounts** (gsh / housr.ai / apartmentsmart / urbanorigin once re-auth'd / dflayfield once re-auth'd), **archive the source Gmail thread** so it leaves Dave's inbox.
+
+```bash
+# Archive the source email thread on Ralph
+ssh -i ~/.ssh/LightsailDefaultKey-us-east-1.pem ubuntu@100.73.64.27 \
+  "python3 /home/ubuntu/openbrain/connectors/gmail/gmail_archive.py \
+   '<source_account>' '<thread_id>' --read"
+```
+
+Result is JSON: `{"ok": true, "kind": "thread", "id": "<thread>", "messages": N}` on success, `{"ok": false, "code": 403, "error": "..."}` if scope missing.
+
+Show one short line in the confirmation about the Gmail action:
+- ✓ on success: `Gmail: archived <N> messages in thread`
+- ⚠ on failure: `Gmail archive skipped (<reason>)` — never block the DB update on this; archive is a follow-on enrichment, not a hard dependency.
+
+If `source_account` is `dflayfield@gmail.com` AND the gmail ingester used IMAP for that account (no OAuth), skip Gmail archive with: `Gmail: dflayfield uses IMAP — archive deferred (will land when OAuth scope is upgraded).`
+
+For `dropped`: same archive call. Dave decided he doesn't want this email either way.
+
+For `done`: same archive call. The task is closed; the source email's job is done.
+
+For `waiting <person>`: do NOT archive. Dave still expects a reply.
+
+For `push <date>`: do NOT archive. Dave is deferring, not closing.
+
 ```sql
 -- Example: done
 UPDATE efc.tasks
 SET status = 'done', completed_at = now(), updated_at = now()
 WHERE id = '<full-uuid>'
-RETURNING id, title, status, sender_email, source_email_id;
+RETURNING id, title, status, sender_email, source_email_id, source_account, thread_id;
 
 -- Example: push to a date
 UPDATE efc.tasks
