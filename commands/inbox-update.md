@@ -59,19 +59,44 @@ For `push <date>`: do NOT archive. Dave is deferring, not closing.
 ```sql
 -- Example: done
 UPDATE efc.tasks
-SET status = 'done', completed_at = now(), updated_at = now()
+SET status = 'done', completed_at = now(), updated_at = now(),
+    waiting_since = NULL, chase_nudged_at = NULL, chased_at = NULL  -- M3: clear chase state
 WHERE id = '<full-uuid>'
 RETURNING id, title, status, sender_email, source_email_id, source_account, thread_id;
 
 -- Example: push to a date
 UPDATE efc.tasks
-SET status = 'deferred', deferred_until = '<parsed-date>', updated_at = now()
+SET status = 'deferred', deferred_until = '<parsed-date>', updated_at = now(),
+    waiting_since = NULL, chase_nudged_at = NULL, chased_at = NULL  -- M3: clear chase state
 WHERE id = '<full-uuid>' RETURNING id, title, status, deferred_until;
 
 -- Example: drop
 UPDATE efc.tasks
-SET status = 'dropped', updated_at = now()
+SET status = 'dropped', updated_at = now(),
+    waiting_since = NULL, chase_nudged_at = NULL, chased_at = NULL  -- M3: clear chase state
 WHERE id = '<full-uuid>' RETURNING id, title, status;
+
+-- Example: waiting (M3 — set waiting_since so chase routine can age it)
+UPDATE efc.tasks
+SET status = 'waiting',
+    waiting_on_person = '<person>',
+    waiting_on_what   = '<inferred from task>',
+    waiting_since     = now(),                            -- M3: anchor for 3d/7d chase
+    chase_nudged_at   = NULL,                             -- M3: reset chase state
+    chased_at         = NULL,
+    updated_at        = now()
+WHERE id = '<full-uuid>' RETURNING id, title, status, waiting_on_person, waiting_since;
+```
+
+**Phase 4 M3 chase state:** any status change OUT of `waiting` clears `waiting_since`, `chase_nudged_at`, and `chased_at`. Any status change INTO `waiting` sets `waiting_since = now()` and clears the chase fields. This keeps the daily chase routine honest.
+
+If the task already has `[CHASE — Nd no reply]` prefix from the chase routine and Dave acts on it (done / drop / push / waiting again), strip that prefix from the title in the same UPDATE:
+
+```sql
+-- title cleanup when acting on a chased task
+UPDATE efc.tasks
+SET title = regexp_replace(title, '^\[CHASE — \d+d no reply\] ', '')
+WHERE id = '<full-uuid>' AND title ~ '^\[CHASE — \d+d no reply\] ';
 ```
 
 ## Step 4 — Contact learning loop

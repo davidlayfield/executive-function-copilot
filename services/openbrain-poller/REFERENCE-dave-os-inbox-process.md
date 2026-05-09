@@ -1,20 +1,33 @@
 ---
 name: dave-os-inbox-process
-description: Phase 4 M2 inbox-AI orchestrator v2. Every 5 min: rules-first deterministic pre-filter (handles ~60% of emails free), then batched LLM reasoning for the rest using session model (Sonnet/Opus on Dave's Max 20x plan). Writes to efc.inbox_email_log + efc.tasks + efc.people. Silent.
+description: Phase 4 M2 inbox-AI orchestrator v4. Every 5 min. HARD DATE CAP at 90 days — older emails skipped (only auto-archived if rules match, never LLM-classified). LLM step explicitly uses Sonnet, not Opus. Rules-first handles ~60% deterministically. Silent.
 ---
 
-You are running the **Dave OS Phase 4 M2 inbox-AI orchestrator** (v2 — rules-first + batched). Fires every 5 minutes. **Silent** — no chat output unless something is wrong.
+You are running the **Dave OS Phase 4 M2 inbox-AI orchestrator** (v4 — date-capped + Sonnet-only). Fires every 5 minutes. **Silent.**
 
-This routine processes new emails from `openbrain.email_bodies` through a 3-stage pipeline:
-1. **Rules-first deterministic pre-filter** (no LLM) — handles ~60% of emails for free
-2. **Batched LLM reasoning** (Sonnet/Opus on Dave's Max 20x plan, no API metering) — for the cases that need judgment
-3. **SQL writes** — to `efc.inbox_email_log`, `efc.tasks`, `efc.people`, `efc.poller_state`
+## CRITICAL OPERATING CONSTRAINTS — READ FIRST
+
+1. **HARD DATE CAP.** Skip any email with `date_received < now() - interval '90 days'`. Don't classify, don't LLM, don't even rules-first. The exception: if a rule (`auto_archive`, `auto_unsubscribe`) matches purely on sender pattern (no body/subject inspection needed), apply it and log as 'noise' with rule_hits[] populated. Otherwise SKIP and write a row with classification='skipped_too_old' so we don't re-evaluate. This protects against burning quota on 2007 emails.
+
+2. **USE SONNET, NOT OPUS.** When you do reach for an LLM call, use **claude-sonnet-4-5** (or whatever current Sonnet is). Opus is reserved for the deep-dive mining routine. The classification + scoring + extraction work doesn't need Opus quality. **Set `classified_by_model='claude-sonnet-4-5'`** in the inbox_email_log writes. If you cannot select a non-default model, explicitly note "model selection not available" in the run notes — DO NOT fall back to Opus silently.
+
+3. **Rules-first deterministic pre-filter is your friend.** ~60% of emails should be classified without LLM at all (newsletter whitelist, social-media senders, no-reply patterns, FYI subjects, phishing patterns). Use it aggressively. Cost-aware.
+
+This routine processes new emails from `openbrain.email_bodies` through a 5-stage pipeline:
+1. Date-cap + dedup filter (skip > 90 days old; skip already-logged via UNIQUE)
+2. Pre-classification rules (auto_archive can short-circuit; auto_unsubscribe queues sender)
+3. Rules-first deterministic pre-filter (no LLM)
+4. Batched LLM reasoning — **Sonnet only**
+5. Post-classification rules + dedup + writes
 
 Use the **supabase MCP** with project_id `psmkklhyfkivyokhaiga`.
 
-## Step 1 — Pull batch
+## Step 1 — Pull batch (with date cap)
 
 ```sql
+SELECT id FROM efc.inbox_rules WHERE active = true;  -- cache for batch
+SELECT id, sender_pattern FROM efc.newsletter_sources WHERE status='whitelisted';
+
 SELECT
   eb.account, eb.message_id, eb.thread_id, eb.subject,
   eb.from_name, eb.from_address, eb.to_addresses, eb.cc_addresses,
@@ -30,180 +43,202 @@ WHERE NOT EXISTS (
   SELECT 1 FROM efc.inbox_email_log iel
   WHERE iel.account = eb.account AND iel.message_id = eb.message_id
 )
+  AND eb.date_received >= now() - interval '90 days'   -- HARD CAP
 ORDER BY eb.date_received DESC NULLS LAST
 LIMIT 100;
 ```
 
 If zero rows → exit silently.
 
-If rows: continue. Note Dave is on the **Claude Max 20x plan**. He almost never hits 50% of quota. Routines draw from this same pool. **Batch generously** — 100 emails per run is fine. Bigger if needed (Opus 4.7 has 1M context).
+## Step 1.5 — Mark old-skipped emails (one-time)
 
-## Step 2 — Rules-first deterministic pre-filter
+For emails older than 90 days that aren't yet logged AND don't match any rule, batch-insert a 'skipped_too_old' row so they never re-evaluate:
 
-For each email, BEFORE any LLM reasoning, check these rules. If any match, classify deterministically and skip to the write step.
-
-### Skip entirely (don't even log)
-- `account = 'info@apartmentsmart.com'` — defensive; should already be excluded at OB ingest
-- `body_plain IS NULL AND body_html IS NULL AND subject IS NULL` — corrupted
-
-### Auto-classify NEWSLETTER (no LLM)
-- `from_address` matches a row in `efc.newsletter_sources WHERE status='whitelisted'` (do a SQL lookup once at start of run, cache the patterns)
-- → classification = 'NEWSLETTER', task = null, score_dimensions all = 0.2
-
-### Auto-classify NOISE (no LLM)
-- `from_address` matches `^.*@(linkedin|twitter|facebook|instagram|x|threads|tiktok)\.com$` or contains `noreply|no-reply|notification|notifications`
-- AND no urgency/financial keywords in subject (do a quick scan: `payment|invoice|deadline|urgent|YMYL|action required|due`)
-- → classification = 'NOISE', task = null, score_dimensions all low (~0.1)
-
-### Auto-flag for newsletter review (no LLM, but doesn't auto-classify)
-- Has `list_unsubscribe IS NOT NULL` AND not on whitelist AND not in `efc.unsubscribe_queue` already
-- → INSERT into `efc.newsletter_sources` with `status='unreviewed'` so Monday brief can surface it
-- Continue to LLM classification for actual category
-
-### Auto-classify SPAM (no LLM, conservative)
-- Sender domain mismatch with display name (e.g. "Bank of America" but `@gmail.com`)
-- AND credential-fishing keywords (verify your account, suspicious activity, click here to confirm, etc.)
-- → classification = 'SPAM', confidence = 0.9, task = null
-
-### Auto-classify INFORMATIONAL for "for your records" patterns (no LLM)
-- Subject starts with `FYI:` `FYI -` `For your records` `Heads up:`
-- → classification = 'INFORMATIONAL', score_dimensions: importance=0.4, urgency=0.3, others~0.5
-
-After this pass, you should have ~40% of the batch needing LLM reasoning. The rest are deterministically classified.
-
-## Step 3 — Batched LLM reasoning for the remaining cases
-
-You have the operating manual + skills loaded as context. Apply them to the unclassified emails.
-
-For each remaining email, decide:
-
+```sql
+INSERT INTO efc.inbox_email_log (account, message_id, thread_id, sender_email, subject,
+  received_at, classification, classification_confidence,
+  classified_by_model, classified_at, rule_hits)
+SELECT eb.account, eb.message_id, eb.thread_id, eb.from_address, eb.subject,
+       eb.date_received, 'noise', 1.0,
+       'rules-first:date-cap', now(), ARRAY['date_cap_90d']
+FROM openbrain.email_bodies eb
+WHERE NOT EXISTS (
+  SELECT 1 FROM efc.inbox_email_log iel
+  WHERE iel.account = eb.account AND iel.message_id = eb.message_id
+)
+  AND eb.date_received < now() - interval '90 days'
+ON CONFLICT (account, message_id) DO NOTHING;
 ```
+
+This drains the historical backlog cheaply — one bulk insert, zero LLM calls. Subsequent runs only deal with recent emails.
+
+Cap this batch at 5,000 per run if needed (don't lock the table for too long).
+
+## Step 2 — Pre-classification rules (BEFORE any LLM)
+
+For each email in batch (recent emails only — Step 1 already filtered to <90d), evaluate active `auto_archive` and `auto_unsubscribe` rules. If `auto_archive` matches → classify as 'noise' with rule_hits, skip LLM. If `auto_unsubscribe` matches → INSERT into queue, continue.
+
+YMYL override: if email has YMYL keywords (cheap pre-scan), DO NOT auto-archive. YMYL always wins.
+
+## Step 3 — Rules-first deterministic pre-filter (no LLM)
+
+Same as v3:
+- Newsletter whitelist match → NEWSLETTER
+- LinkedIn / Twitter / Facebook / Instagram / X / Threads / TikTok / no-reply / notification → NOISE (sans urgency keywords)
+- List-Unsubscribe + not whitelisted → flag for unreviewed
+- Display-name / domain mismatch + phishing keywords → SPAM
+- Subject "FYI:" / "Heads up:" → INFORMATIONAL
+
+After this, ~40% of recent emails need LLM.
+
+## Step 4 — Batched Sonnet reasoning
+
+For remaining recent emails, batch all of them in ONE Sonnet call with structured JSON output per email:
+
+```json
 {
   "classification": "ACTIONABLE | YMYL | INFORMATIONAL | NEWSLETTER | NOISE | SPAM",
-  "classification_confidence": 0.0–1.0,
-  "classification_reason": "<one sentence — what signal drove this>",
-  "ymyl": null OR {
-    "severity": "critical|high|medium",
-    "what":      "<one sentence>",
-    "deadline":  "YYYY-MM-DD" or null,
-    "consequence": "<one sentence>",
-    "next_step": "<verb-first action>",
-    "confidence": 0.0–1.0
-  },
-  "score_dimensions": {
-    "urgency":             0.0–1.0,
-    "importance":          0.0–1.0,
-    "sender_authority":    0.0–1.0,
-    "deadline_proximity":  0.0–1.0,
-    "financial_impact":    0.0–1.0,
-    "context_richness":    0.0–1.0
-  },
-  "score_reason": "<one sentence>",
-  "task": null OR {
-    "title":   "<verb-first ≤60 chars>",
-    "notes":   "<full context>",
-    "deadline":"YYYY-MM-DD" or null,
-    "priority":"must|should|could"
-  }
+  "classification_confidence": 0.0-1.0,
+  "classification_reason": "one sentence",
+  "ymyl": null OR {severity, what, deadline, consequence, next_step, confidence},
+  "score_dimensions": {urgency, importance, sender_authority, deadline_proximity, financial_impact, context_richness},
+  "score_reason": "one sentence",
+  "task": null OR {title, notes, deadline, priority}
 }
 ```
 
-Apply the rules from these skills (already in your context via the plugin):
-- `email-classification` — 5+1 categories, decision tree, edge cases, tie-breakers
-- `ymyl-detection` — two-pass detection, severity tiers, override rules
-- `email-scoring` — 6-dimension formula, 7 special rules, cold-start heuristics
-- `email-task-extraction` — verb-first titles, deadline parsing, dedup cascade
+Use the four brain skills as context (`email-classification`, `ymyl-detection`, `email-scoring`, `email-task-extraction`).
 
-Process all remaining emails in **one reasoning pass** inside this session. With Opus 4.7 / 1M context, you can hold the full batch + all rules + produce all outputs without paging.
-
-Bias for staleness: emails older than 12 months get a `context_richness` penalty of 0.3 in score_dimensions (they're less likely to be acted on now).
-
-## Step 4 — Compute composite score (math, not LLM)
+## Step 5 — Compute composite + apply special rules (math, not LLM)
 
 ```
 priority_score = (urgency*.25 + importance*.25 + sender_authority*.20
                 + deadline_proximity*.15 + financial_impact*.10 + context_richness*.05)
 ```
 
-Apply post-composite rules from `email-scoring` § "Special rules":
-- YMYL floor: critical 0.95 / high 0.85 / medium 0.70
-- Unknown free-email sender first-contact floor: 0.45
-- CC-only ceiling: 0.50 (unless name in body)
-- Newsletter ceiling: 0.20
+YMYL floor (.95/.85/.70), unknown free-email floor .45, CC-only ceiling .50, newsletter ceiling .20.
 
-Round to 3 decimals.
+## Step 6 — Post-classification rules
 
-## Step 5 — Dedup tasks
+Apply `priority_boost`, `priority_suppress`, `auto_label`, `auto_draft`. Cap modifiers ±0.30 cumulative. Increment rule.times_applied.
 
-For ACTIONABLE/YMYL with extracted task, run the 3-check cascade:
+## Step 7 — Dedup tasks (3-check cascade)
 
-1. `efc.tasks WHERE source_email_id = <message_id>` → already exists, log only.
-2. `efc.tasks WHERE thread_id = <thread_id> AND status NOT IN ('done','dropped')` → UPDATE: append `[UPDATE <date>] <new context>` to notes, refresh deadline, recompute score.
-3. `efc.tasks WHERE lower(sender_email) = lower(<from>) AND status NOT IN ('done','dropped')` AND fuzzy title ≥80% → UPDATE as #2.
+source_email_id → thread_id → fuzzy title.
 
-Otherwise INSERT new row.
-
-## Step 6 — Batched writes
-
-Use one `INSERT ... VALUES (...), (...), (...)` per table — batched for efficiency, not row-by-row.
+## Step 8 — Batched writes
 
 ```sql
--- All inbox_email_log rows in one INSERT (idempotent via UNIQUE)
-INSERT INTO efc.inbox_email_log (account, message_id, thread_id, sender_name, sender_email,
-  subject, received_at, classification, classification_confidence, ymyl_alert,
-  openbrain_memory_id, classified_by_model, classified_at, task_id)
+INSERT INTO efc.inbox_email_log (...)
 VALUES (...), (...), (...)
 ON CONFLICT (account, message_id) DO NOTHING;
-
--- All new tasks in one INSERT
-INSERT INTO efc.tasks (...) VALUES (...), (...) RETURNING id;
-
--- People upserts in one INSERT (one per unique sender)
-INSERT INTO efc.people (...) VALUES (...), (...)
-ON CONFLICT (email_normalized) DO UPDATE SET ...;
+-- ALWAYS set classified_by_model = 'claude-sonnet-4-5' (or 'rules-first:<rule>' for non-LLM)
 ```
 
-For tasks that are UPDATE (dedup hit), do those individually.
+## Step 8.5 — Phase 4 M3: Reply detection on waiting tasks
 
-## Step 7 — Update poller_state
+For each email in this batch (recent only — already filtered to <90 days), check whether its `thread_id` matches a task in `status='waiting'`. If yes, that's an inbound reply on a thread Dave was waiting on — flip the task back to `todo` with a Sonnet-summarized title prefix.
+
+**Match strategy: thread_id only** (per design Q1=A). A "fresh email from same person, different thread" is too noisy and will not flip the task here.
+
+```sql
+-- Find waiting tasks whose thread received a new email in this batch.
+-- Skip if the new email is FROM Dave himself (he replied; don't flip own outbound as inbound reply).
+SELECT t.id AS task_id, t.title, t.waiting_on_person,
+       eb.message_id, eb.from_address, eb.from_name, eb.subject,
+       eb.body_plain, eb.date_received
+FROM efc.tasks t
+JOIN openbrain.email_bodies eb
+  ON eb.thread_id = t.thread_id
+ AND eb.account   = t.source_account
+WHERE t.status = 'waiting'
+  AND t.thread_id IS NOT NULL
+  AND eb.message_id = ANY(<message_ids_in_this_batch>)
+  AND eb.from_address NOT IN (
+    SELECT lower(account) FROM efc.poller_state WHERE source LIKE 'gmail-%'
+  )                                                  -- not from Dave himself
+  AND eb.from_address NOT LIKE 'dave@%'              -- belt-and-suspenders
+  AND eb.from_address NOT LIKE 'dflayfield@%'
+  AND t.replied_at IS NULL                           -- only flip first reply
+ORDER BY eb.date_received ASC;
+```
+
+For each matched task:
+
+1. **Summarize the reply with Sonnet** (one cheap call per reply, <300 tokens output). Prompt:
+   ```
+   You are summarizing an inbound email reply on a thread Dave was waiting on.
+   Give a single-line summary (max 80 chars) that tells Dave what changed and what he needs to do next.
+   Format: "<person>: <what they said> — <implied next action OR "?" if unclear>"
+   Examples:
+   - "Tom: yes, confirm by Fri — confirm CAHEC"
+   - "Charlie: needs Q1 before he signs — produce Q1 packet"
+   - "Bob: out til Tuesday — push to Tue"
+   Email body follows.
+   ```
+
+2. **Update the task** (one UPDATE per match):
+   ```sql
+   UPDATE efc.tasks
+   SET status            = 'todo',
+       priority          = CASE WHEN priority = 'could' THEN 'should' ELSE priority END,
+       title             = '[REPLY] ' || '<sonnet_summary>' || ' — ' || regexp_replace(title, '^\[(REPLY|CHASE — \d+d no reply)\] ', ''),
+       reply_summary     = '<sonnet_summary>',
+       replied_at        = now(),
+       reply_message_id  = '<message_id>',
+       waiting_since     = NULL,
+       chase_nudged_at   = NULL,
+       chased_at         = NULL,
+       notes             = COALESCE(notes, '') ||
+                           E'\n\n[REPLY ' || to_char(now(), 'YYYY-MM-DD HH24:MI') ||
+                           '] from ' || COALESCE('<from_name>', '<from_address>') ||
+                           E'\n' || '<sonnet_summary>',
+       updated_at        = now()
+   WHERE id = '<task_id>';
+   ```
+
+3. **Idempotency:** the `t.replied_at IS NULL` clause + the `[REPLY] ` title prefix means later emails on the same thread won't double-flip. If you see > 1 reply within the same batch run, take the most recent one (ORDER BY date_received ASC, last-write-wins).
+
+4. **Cost note:** at most a handful of replies per run. Each Sonnet summary is ~$0 on Max plan and a few hundred tokens. If batch contains > 20 candidate replies (very unlikely), summarize in a single batched Sonnet call with structured JSON output.
+
+5. **Failure mode:** if Sonnet summary fails, fall back to a deterministic title: `[REPLY <date>] from <from_name>` and proceed with the UPDATE without `reply_summary`. Do NOT skip the status flip.
+
+## Step 9 — Update poller_state
 
 ```sql
 INSERT INTO efc.poller_state (source, last_polled_at, last_run_status, last_run_notes)
 VALUES ('inbox-process', now(), 'ok',
   json_build_object(
-    'processed', <total>,
-    'rules_first', <count handled deterministically>,
-    'llm_reasoned', <count needing LLM>,
-    'classifications', <jsonb breakdown>,
+    'date_capped', <count>,
+    'rules_first', <count>,
+    'llm_reasoned', <count>,
     'tasks_created', <count>,
     'tasks_updated', <count>,
-    'ymyl_count', <count>,
-    'duration_seconds', <duration>
-  )::text
-)
+    'classifications', <jsonb breakdown>,
+    'duration_seconds', <duration>,
+    'model_used', 'claude-sonnet-4-5'
+  )::text)
 ON CONFLICT (source) DO UPDATE SET
-  last_polled_at  = EXCLUDED.last_polled_at,
+  last_polled_at = EXCLUDED.last_polled_at,
   last_run_status = EXCLUDED.last_run_status,
   last_run_notes  = EXCLUDED.last_run_notes;
 ```
 
 ## Rules
 
-- **Silent.** No chat output unless something is wrong. The morning brief surfaces results.
-- **Idempotent.** Re-running on same emails is safe (UNIQUE on `(account, message_id)`).
-- **Quota-aware.** Dave is on **Claude Max 20x**, almost never above 50%. Be generous on batch size; don't preserve quota at cost of throughput. If you ever hit a 429 / quota-exceeded / rate-limit: log to `poller_state.last_run_status = 'throttled'`, skip the rest of the batch, exit cleanly. Next 5-min fire tries again.
-- **Best-effort per email.** If one email fails to parse/classify/write, log it and continue. Don't abort the whole run.
-- **YMYL never gets autonomous action.** Just log + extract + flag. Auto-archive is M4.
-- **Cost on Dave's Max plan = $0 marginal.** No need to be stingy. Bigger batches, deeper analysis, better models — all free up to quota.
+- **Silent.**
+- **Idempotent.**
+- **HARD 90-day date cap. Never classify older emails with LLM.**
+- **Sonnet only for LLM step. Never Opus.** If for some reason you can't switch models, log "model selection unavailable" and skip the LLM step entirely (rules-first results still write).
+- **If rate-limited:** log throttled, exit clean, retry next 5 min.
+- **YMYL never auto-archives** even with rules.
+- **Best-effort per email.** Continue on failures.
 
 ## Output
 
-If you wrote nothing → exit silently.
-
-If you processed something → ONE compact summary line in your session log:
+If wrote nothing → silent.
+If processed → ONE compact summary line:
 
 ```
-Processed N (rules-first M, LLM K). Classifications: {...}. Tasks: created/updated. YMYL: count. Duration Xs.
+Processed N (date-cap M, rules F, LLM K with Sonnet). Classifications: {...}. Tasks: c/u. YMYL: count. Duration Xs.
 ```
-
-That's it. No coaching. No commentary. The morning brief reads `efc.inbox_sessions` and presents to Dave appropriately.

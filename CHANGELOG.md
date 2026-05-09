@@ -2,6 +2,39 @@
 
 All notable changes to this project go here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.11.0 — 2026-05-08 (Phase 4 M3 — waiting-task follow-up resurfacer)
+
+Closes the second loop in inbox triage. Before this, `/inbox-update <id> waiting Tom` would silently park a task forever — Tom's reply showed up in Gmail but the task stayed in `waiting` until Dave manually noticed. After this, the M2 brain detects replies on watched threads and surfaces chases for stale waits.
+
+### Schema (migration `efc_tasks_waiting_resurface_columns`)
+- `efc.tasks` adds 6 columns: `replied_at`, `reply_summary`, `reply_message_id`, `chase_nudged_at`, `chased_at`, `waiting_since`.
+- 2 partial indexes for cheap lookups (waiting tasks by `thread_id`; waiting tasks by `waiting_since`).
+- New view `efc.v_tasks_waiting_followups` — what the morning brief reads to surface follow-ups.
+- Backfill: any task already in `waiting` status gets `waiting_since = COALESCE(updated_at, created_at)`.
+
+### Reply detection (Q1=A: thread-match, Q2=C: Sonnet-summarized)
+- M2 routine adds Step 8.5: for each new email in batch, check whether `thread_id` matches a `status='waiting'` task. If yes, run a one-shot Sonnet summary and flip the task to `todo` with title prefix `[REPLY] <person>: <what they said> — <next action>`.
+- Self-reply guard: emails from Dave's own addresses do not flip waiting tasks.
+- Idempotency: `replied_at IS NULL` and `[REPLY]` title prefix prevent double-flips when multiple replies arrive on the same thread.
+
+### Chase routine (Q3=C: tiered 3d soft / 7d hard)
+- New scheduled task `dave-os-waiting-chase` — daily 6:03 AM ET, just before morning briefing.
+- Day-3 soft nudge: sets `chase_nudged_at`, no status change. Surfaced in tomorrow's brief as "still waiting".
+- Day-7 hard chase: flips status back to `todo`, prefixes title `[CHASE — Nd no reply]`, sets `chased_at`. Forces Dave to decide: chase / drop / extend.
+- Defensive: skips tasks updated in the last 24 hours (don't fight a recent manual action) and tasks with `waiting_on_person IS NULL`.
+
+### Plugin
+- New command `/inbox-waiting [list|stale|nudged|chased]` — view all tasks in `waiting` status, sorted oldest first, with chase state visible.
+- `/inbox-update` updated: any flip OUT of `waiting` clears the chase state; any flip INTO `waiting` sets `waiting_since = now()` and resets chase fields. Title cleanup strips `[CHASE — Nd no reply]` prefix when Dave acts on a chased task.
+
+### Morning brief
+- New `📬 FOLLOW-UPS` section: replies received overnight, chases that fired today, soft nudges in flight. Replies sort first because they're the highest-leverage signal — ball is back in Dave's court.
+
+### Snapshots in repo
+- `services/openbrain-poller/REFERENCE-dave-os-waiting-chase.md` (new)
+- `services/openbrain-poller/REFERENCE-dave-os-inbox-process.md` (updated)
+- `services/openbrain-poller/REFERENCE-dave-os-morning-briefing.md` (new snapshot)
+
 ## Unreleased — 2026-05-07 (Phase 4 M2 v2 — rules-first + Max-plan-aware)
 
 ### Changed
