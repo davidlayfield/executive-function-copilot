@@ -201,3 +201,45 @@ If no real tasks exist yet (e.g. inbox not triaged), use empty arrays; the brief
 - If a journal entry contains medical / health / medication content (`is_sensitive=true`), don't quote details — describe pattern instead. Dave authorized observation but expects discretion.
 - If patterns suggest something beyond coaching (recurring stuck states, escalating anxiety, mood instability across multiple days), name it briefly per the manual's clinician rule: *"worth raising with your therapist / doctor."* Never diagnose.
 - The brief is the **conversation start.** Stay open to Dave's reply: triage decisions, "push these," "I'm in flow," "tell me more about pattern X," "add to journal." Respond in the same session.
+## Step 8 (added 2026-07-19, Dave's order) — write the Morning Brief row for Mission Control
+
+After the daily plan is saved, assemble THE single morning roll-up Dave reads in Mission Control. Rules: down-only for infrastructure (never list what is working), a few words per item, sections only when they have content, everything scannable in two minutes. The goal is a knock-out list that pulls him in, not a report that buries him.
+
+Gather (all via the supabase MCP, same project):
+
+```sql
+-- Down services ONLY (red checks)
+SELECT check_id, detail FROM monitor.check_state WHERE up = false ORDER BY state_since;
+
+-- What the night clerk did and what it staged for Dave (latest shift)
+SELECT digest, auto_fixed, ask_on_risky, note_path FROM monitor.night_clerk_runs ORDER BY ran_at DESC LIMIT 1;
+
+-- Today's calendar
+SELECT * FROM efc.v_calendar_today;
+
+-- Email triage yield (what the inbox routines surfaced)
+SELECT count(*) FILTER (WHERE status='pending') AS pending FROM efc.inbox_items;
+SELECT title, priority, due_date FROM efc.tasks WHERE created_at > now() - interval '24 hours' AND status IN ('todo','doing') ORDER BY priority LIMIT 8;
+
+-- New sales leads / CRM signals from overnight mining
+SELECT contact_name, company, reason FROM efc.sales_leads WHERE created_at > now() - interval '24 hours' LIMIT 5;
+
+-- Newsletter/news digest if one landed in the last 24h (the news slot)
+SELECT * FROM efc.newsletter_digests ORDER BY created_at DESC LIMIT 1;
+
+-- OpenBrain capture volume last 24h by source (only call out anomalies or gems)
+SELECT source, count(*) FROM openbrain.memories WHERE created_at > now() - interval '24 hours' GROUP BY source ORDER BY 2 DESC;
+```
+
+(Column names above are best-effort; if a query errors, inspect the table and adapt. Never fake a section, never skip the brief because one source errored: note the miss inside the section instead.)
+
+Then INSERT one row into monitor.morning_briefs (on conflict (brief_date) do update: replace all fields):
+
+- brief_date: today (America/New_York).
+- one_liner: one sentence, half-awake readable: the single most important thing today.
+- needs_dave: ordered array of {what, source}: the clerk's ask_on_risky items first, then must-do tasks, then anything a red check implies only Dave can fix. Cap 7. This is the knock-out list.
+- down: [{name, detail}] straight from the red checks, detail trimmed to a few words. Empty array when all green (no celebration, just empty).
+- changed_overnight: the clerk's auto_fixed items plus anything notable the routines did autonomously, each {what, by}. Cap 8.
+- sections: object with ONLY non-empty keys among email {pending, new_tasks[]}, calendar {events[]}, crm {leads[]}, news {headlines[]}, openbrain {note}: each value already condensed to headline form, one line per item. No prose paragraphs. Detail lives behind the click in MC, not in the brief.
+
+Keep the existing Cowork message behavior; end that message with: "Full brief: davidlayfield.com/briefings".
