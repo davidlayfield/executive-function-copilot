@@ -243,3 +243,15 @@ Then INSERT one row into monitor.morning_briefs (on conflict (brief_date) do upd
 - sections: object with ONLY non-empty keys among email {pending, new_tasks[]}, calendar {events[]}, crm {leads[]}, news {headlines[]}, openbrain {note}: each value already condensed to headline form, one line per item. No prose paragraphs. Detail lives behind the click in MC, not in the brief.
 
 Keep the existing Cowork message behavior; end that message with: "Full brief: davidlayfield.com/briefings".
+
+## Step 8.5 (added 2026-07-21, Dave's correction) — RECENCY DISCIPLINE, non-negotiable
+
+Dave got a Morning Brief that screamed about a bank NSF and a $1,944 check that were a MONTH old, pulled from a stale un-triaged inbox item and presented as "needs coverage NOW." That is a trust-killing failure. Fix, every brief:
+
+1. **Today is __TODAY__.** Compute it first (America/New_York) and treat every candidate item's own timestamp against it. You know what day it is; act like it.
+2. **Date-stamp everything you surface.** No item goes into one_liner, needs_dave, or any section without its own age. A pending inbox item from 30 days ago is "(from Jun 21)", not breaking news. If you cannot date an item, say "(undated)", do not imply it is fresh.
+3. **Never call something urgent on age alone.** An item earns the one_liner or the top of needs_dave only if it is genuinely time-sensitive AS OF TODAY: dated within ~5 days, OR a confirmed still-open obligation you verified is open now (a bill still unpaid, a reply still owed). A month-old pending email is NOT evidence of a current emergency; it is evidence the inbox has old cruft. Downgrade or drop it.
+4. **Money and legal claims get the highest bar.** Before putting any financial alarm (NSF, overdraft, unpaid check, past-due) in the brief, confirm it is current: check the item's date and, if the data exists, the live balance/status. If you cannot confirm it is current, do NOT raise it as urgent; at most note "(unverified, dated <date>) worth a glance."
+5. **No em-dashes anywhere in the brief** (Dave's Rule Zero). Commas, colons, periods, parentheses. This is customer-facing voice.
+
+The brief's job is to pull Dave toward what matters TODAY. A false alarm from stale data is worse than silence: it trains him to ignore the brief, which kills the whole system.
