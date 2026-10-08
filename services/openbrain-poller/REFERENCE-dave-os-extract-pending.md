@@ -13,7 +13,7 @@ file if something fails: report the failure instead.
 ## Step 1: run the script
 
 From the repo root, run exactly this with the Bash tool, passing a Bash timeout
-of 600000 ms (the script stops itself after about 8 minutes):
+of 600000 ms (the script stops itself after at most about 8.5 minutes):
 
 ```bash
 python3 services/openbrain-poller/extract_pending.py
@@ -39,7 +39,12 @@ exited non-zero, reply with its last 20 lines. The script writes
   so it is picked up once its body lands. `noise` and `spam` are never fed.
 - Runs every lens in one model call per row via `claude -p`, on the
   subscription token this run was given, never an API key.
-- Writes mentions, candidates, relationships, open questions, behavior signals
-  and lens candidates, then marks the row processed. A row whose write fails is
-  left unmarked and retried next hour.
+- Claims the row (marks it processed) BEFORE writing its outputs, then writes
+  mentions, candidates, relationships, open questions, behavior signals and lens
+  candidates. A model error or a failed claim leaves the row unmarked with
+  nothing written, so next hour's retry cannot duplicate anything. A failed
+  insert after the claim is logged (status `partial`) and not retried, so a
+  row's outputs are written at most once.
+- No row starts after `EXTRACT_TIME_BUDGET` (420 s) and no model call runs past
+  that plus `EXTRACT_GRACE` (90 s), so a run ends inside the 600 s Bash cap.
 - `--dry-run` runs everything except the writes, for testing.
