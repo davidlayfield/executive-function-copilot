@@ -26,7 +26,7 @@ Env:
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY   required (/etc/efc/env on Ralph)
   CLAUDE_CODE_OAUTH_TOKEN                   inherited from run-routine.sh; or
   EXTRACT_TOKEN_SLOT=N                      use CLAUDE_TOKEN_N from the env file
-  EXTRACT_BATCH (default 20), EXTRACT_WORKERS (4), EXTRACT_TIME_BUDGET (480 s)
+  EXTRACT_BATCH (default 10), EXTRACT_WORKERS (4), EXTRACT_TIME_BUDGET (480 s)
   EXTRACT_MODEL (sonnet), EXTRACT_CLAUDE_BIN (claude on PATH, else ~/.local/bin)
 
 Usage:
@@ -418,7 +418,7 @@ def main():
     global DRY
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--batch", type=int, default=int(os.environ.get("EXTRACT_BATCH", 20)))
+    ap.add_argument("--batch", type=int, default=int(os.environ.get("EXTRACT_BATCH", 10)))
     ap.add_argument("--workers", type=int, default=int(os.environ.get("EXTRACT_WORKERS", 4)))
     ap.add_argument("--time-budget", type=int,
                     default=int(os.environ.get("EXTRACT_TIME_BUDGET", 480)))

@@ -31,7 +31,7 @@ exited non-zero, reply with its last 20 lines. The script writes
 ## What the script does (for whoever reads this later)
 
 - Reads the active lenses from `efc.extraction_lenses`.
-- Takes up to `EXTRACT_BATCH` (default 20) rows that still need extraction, in
+- Takes up to `EXTRACT_BATCH` (default 10) rows that still need extraction, in
   priority order: `journal_entries`, `interactions`, `knowledge_atoms`, then
   `inbox_email_log` newest first.
 - Email rows are fed WITH their body from `openbrain.email_bodies` (joined on
